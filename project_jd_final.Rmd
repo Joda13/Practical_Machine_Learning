@@ -1,0 +1,230 @@
+---
+title: "Practical Machine Learning - Project"
+output: html_document
+---
+
+## 1. Overview
+This report describes how data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants is used to predict whether they perform barbell lifts correctly or incorrectly. 
+
+\ 
+
+### 1.1 Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+\ 
+
+### 1.2 Data sources
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+\ 
+\ 
+
+## 2. Loading libraries and data, Cleaning data
+
+### 2.1 Loading Libraries
+
+```{r results='hide', message=FALSE, warning=FALSE}
+library(lattice)
+library(ggplot2)
+library(caret)
+library(kernlab)
+library(rattle)
+library(corrplot)
+set.seed(13)
+```
+
+\ 
+
+### 2.2 Download data
+
+```{r}
+trainUrl <-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testUrl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+if (!file.exists("./data")) {
+  dir.create("./data")
+}
+if (!file.exists("./data/pml-training.csv")) {
+  download.file(trainUrl, destfile = "./data/pml-training.csv", method = "curl")
+}
+if (!file.exists("./data/pml-testing.csv")) {
+  download.file(testUrl, destfile = "./data/pml-testing.csv", method = "curl")
+}
+```
+
+\ 
+
+### 2.3 Read data
+
+```{r}
+train_dta <- read.csv("./data/pml-training.csv")
+test_dta <- read.csv("./data/pml-testing.csv")
+```
+
+**The training set has** `r dim(train_dta)[1]` **observations of** `r dim(train_dta)[2]` **variables, while the testing set has** `r dim(test_dta)[1]` **observations of **`r dim(test_dta)[2]` **variables.**
+
+\ 
+
+### 2.4 Cleaning data
+
+We want to keep only the relevant variables of the training set. We exlude irrelevant variables in three steps:
+
+a) Remove N/A variables:
+
+```{r cache = TRUE}
+train_dta <- train_dta[,colMeans(is.na(train_dta)) < .9] 
+```
+
+b) Remove metadata:
+
+```{r cache = TRUE}
+train_dta <- train_dta[,-c(1:7)]
+```
+
+c) Remove variables with near zero variance:
+
+```{r cache = TRUE}
+nzv <- nearZeroVar(train_dta)
+train_dta <- train_dta[,-nzv]
+```
+
+**After the cleaning the training set has** `r dim(train_dta)[1]` **observations of** `r dim(train_dta)[2]` **variables.**
+
+\ 
+
+### 2.5 Spilt data into training and test dataset 
+ 
+```{r cache = TRUE}
+inTrain <- createDataPartition(y = train_dta$classe, p = 0.7, list = FALSE)
+train <- train_dta[inTrain,]
+test <- train_dta[-inTrain,]
+```
+
+\ 
+\ 
+
+## 3. Modeling and testing models
+
+The following models will be tested:
+
+        - Decision Tree
+        - Random Forest
+        - Gradient Boosted Trees
+        - Support Vector Machine 
+
+We also want to conduct 3-fold cross validation. Therefore we set up a control for training:
+
+```{r cache = TRUE}
+crl <- trainControl(method = "cv", number = 3, verboseIter = FALSE)
+```
+
+\ 
+
+### 3.1 Decision Tree
+
+Model:
+
+```{r cache=TRUE}
+tree_mod <- train(classe~., data = train, method = "rpart", trControl = crl, tuneLength = 5)
+fancyRpartPlot(tree_mod$finalModel)
+```
+
+Prediction:
+
+```{r cache = TRUE}
+tree_pred <- predict(tree_mod, test)
+cmtrees <- confusionMatrix(tree_pred, factor(test$classe))
+cmtrees
+```
+
+\ 
+
+### 3.2 Random Forest
+
+```{r cache=TRUE}
+rf_mod <- train(classe~., data=train, method="rf", trControl = crl, tuneLength = 5)
+rf_pred <- predict(rf_mod, test)
+cmrf <- confusionMatrix(rf_pred, factor(test$classe))
+cmrf
+```
+
+\ 
+
+### 3.3 Gradient Boosted Trees
+
+```{r cache=TRUE}
+gbm_mod <- train(classe~., data=train, method="gbm", trControl = crl, tuneLength = 5, verbose = F)
+gbm_pred <- predict(gbm_mod, test)
+cmgbm <- confusionMatrix(gbm_pred, factor(test$classe))
+cmgbm
+```
+
+\ 
+
+### 3.4 Support Vector Machine
+
+```{r cache=TRUE}
+svm_mod <- train(classe~., data=train, method="svmLinear", trControl = crl, tuneLength = 5, verbose = F)
+svm_pred <- predict(svm_mod, test)
+cmsvm <- confusionMatrix(svm_pred, factor(test$classe))
+cmsvm
+```
+
+\ 
+
+### 3.5 Model comparison 
+
+#### Accuracy and Out of Sample Error
+
+```{r cache = TRUE}
+mods <- c("Tree", "RF", "GBM", "SVM")
+acc <- round(c(cmtrees$overall[1], cmrf$overall[1], cmgbm$overall[1], cmsvm$overall[1]),3)
+oos_err <- 1 - acc
+data.frame(accuracy = acc, oos_error = oos_err, row.names = mods)
+```
+
+\ 
+
+#### Conclusion:
+
+**The analysis shows that the best model is the Random Forest model. It has an accuracy of** `r cmrf$overall[1]` **and an out of sample error rate of** `r 1-cmrf$overall[1]`**.** 
+
+\ 
+\ 
+
+### 4. Predictions on Test Set (with Random Forest model)
+
+Here we predict the classe (5 levels) outcome for 20 cases:
+
+```{r cache = TRUE}
+pred <- predict(rf_mod, test_dta)
+print(pred)
+```
+
+\ 
+\ 
+
+
+## 5. Appendix
+
+### 5.1 Training set variables' correlation matrix
+
+```{r cache = TRUE}
+corrPlot <- cor(train[, -length(names(train))])
+corrplot(corrPlot, method="color")
+```
+
+### 5.2 Plotting the models
+
+```{r cache = TRUE}
+plot(tree_mod)
+plot(rf_mod)
+plot(gbm_mod)
+```
